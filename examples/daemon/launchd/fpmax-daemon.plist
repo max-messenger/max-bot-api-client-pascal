@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.org/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd template for the fp-max daemon example (examples/daemon).
+
+  Install (system-wide, starts at boot; the example binary, its
+  max_daemon.ini and its max_daemon.log are expected in /opt/fpmax,
+  adjust the paths below otherwise):
+    sudo mkdir -p /opt/fpmax
+    sudo cp max_daemon /opt/fpmax/
+    sudo install -m 600 /dev/null /opt/fpmax/max_daemon.ini
+      # the ini exists at 600 before the token goes in (sudoedit keeps the
+      # mode)
+    sudoedit /opt/fpmax/max_daemon.ini   # the bot token into [Max] Token,
+      # plus [Daemon] LogFile=/opt/fpmax/max_daemon.log (an empty LogFile
+      # sends the log to the system temp directory)
+    sudo chmod 700 /opt/fpmax
+    sudo sysadminctl -addUser fpmax -password -
+      # "-" = sysadminctl prompts for the password interactively: pick a
+      # strong one. fpmax is created as a regular login-capable account
+      # (a role account would need a _name and -roleAccount), so the
+      # password matters.
+    sudo chown -R fpmax:fpmax /opt/fpmax
+    sudo cp fpmax-daemon.plist /Library/LaunchDaemons/
+    sudo launchctl bootstrap system /Library/LaunchDaemons/fpmax-daemon.plist
+
+  Stop and unload:
+    sudo launchctl bootout system/fpmax.daemon
+
+  Logs: the daemon's own TEventLog file /opt/fpmax/max_daemon.log (the
+  updates and the receiver state); stdout/stderr (incl. the startup
+  configuration errors) go to the two *Path files below. The Umask key
+  below (077, the launchd mirror of the systemd template's UMask=0077)
+  keeps the log and its chat ids, and the ini's token, away from other
+  users; the 0700 /opt/fpmax above is the second layer.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>fpmax.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/fpmax/max_daemon</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/opt/fpmax</string>
+  <!-- KeepAlive as a dictionary, not a plain true: restart only when the
+       last exit was NOT successful, the launchd mirror of systemd's
+       Restart=on-failure. A clean SIGTERM stop (exit 0) stays stopped; a
+       crash or the daemon's exit 1 (its receiver died) is restarted. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Seconds between restarts. launchd enforces a minimum of 10 (smaller
+       values are clamped up to it), so this only slows a crash loop down,
+       it does not stop one: unlike systemd's StartLimitBurst there is no
+       cap, on a permanently broken configuration the restarts go on
+       forever - watch the job (or run a watchdog). -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <!-- SIGTERM, then SIGKILL after this many seconds. The daemon's stop
+       latency is one in-flight long-poll request, hard-bounded by the
+       broker HTTP timeout (max(TMaxSender.Timeout, polling window + 3 s),
+       30 s with the defaults), so 45 s leaves a wide margin. -->
+  <key>ExitTimeOut</key>
+  <integer>45</integer>
+  <key>StandardOutPath</key>
+  <string>/opt/fpmax/max_daemon.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/opt/fpmax/max_daemon.stderr.log</string>
+  <!-- The bot needs no root rights while holding the bot token: run as the
+       dedicated fpmax user created in the install header (in
+       /Library/LaunchDaemons the service would run as root otherwise).
+       A per-user install into ~/Library/LaunchAgents of a normal user is
+       the alternative - without these two keys. -->
+  <key>UserName</key>
+  <string>fpmax</string>
+  <key>GroupName</key>
+  <string>fpmax</string>
+  <!-- File mode mask for everything the daemon creates, the log with the
+       chat ids included: the launchd mirror of the systemd template's
+       UMask=0077. As a string with a leading 0 the value is octal
+       (launchd.plist: an integer would have to be decimal). -->
+  <key>Umask</key>
+  <string>077</string>
+</dict>
+</plist>

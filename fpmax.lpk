@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="5">
+    <PathDelim Value="\"/>
+    <Name Value="fpmax"/>
+    <Author Value="Al-muhandis (Renat Suleymanov)"/>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <PathDelim Value="\"/>
+      <SearchPaths>
+        <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+      </SearchPaths>
+      <CodeGeneration>
+        <Optimizations>
+          <OptimizationLevel Value="2"/>
+        </Optimizations>
+      </CodeGeneration>
+      <Other>
+        <CompilerMessages>
+          <IgnoredMessages idx6058="True" idx3124="True" idx3123="True"/>
+        </CompilerMessages>
+      </Other>
+    </CompilerOptions>
+    <Description Value="Max bots API library"/>
+    <License Value="MIT License"/>
+    <Version Release="11"/>
+    <Files Count="7">
+      <Item1>
+        <Filename Value="maxsendertypes.pas"/>
+        <UnitName Value="maxsendertypes"/>
+      </Item1>
+      <Item2>
+        <Filename Value="maxtypes.pas"/>
+        <UnitName Value="maxtypes"/>
+      </Item2>
+      <Item3>
+        <Filename Value="maxstatlog.pas"/>
+        <UnitName Value="maxstatlog"/>
+      </Item3>
+      <Item4>
+        <Filename Value="maxutils.pas"/>
+        <UnitName Value="maxutils"/>
+      </Item4>
+      <Item5>
+        <Filename Value="maxfclhttpclientbroker.pas"/>
+        <UnitName Value="maxfclhttpclientbroker"/>
+      </Item5>
+      <Item6>
+        <Filename Value="maxbasehttpclient.pas"/>
+        <UnitName Value="maxbasehttpclient"/>
+      </Item6>
+      <Item7>
+        <Filename Value="maxwebhook.pas"/>
+        <UnitName Value="maxwebhook"/>
+      </Item7>
+    </Files>
+    <CompatibilityMode Value="True"/>
+    <RequiredPkgs Count="1">
+      <Item1>
+        <PackageName Value="FCL"/>
+      </Item1>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+    <PublishOptions>
+      <Version Value="2"/>
+    </PublishOptions>
+  </Package>
+</CONFIG>

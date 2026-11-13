@@ -1,0 +1,188 @@
+---
+name: Make
+
+on:
+  schedule:
+    - cron:  '0 0 1 * *'
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Workflow executes repo code (make.pas via instantfpc) and runs on fork PRs
+# and a monthly cron: the job token must stay read-only regardless of the
+# repo/org default (td-055)
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Job-level event gate (td-002): on push only the Linux leg runs. A
+    # step-level gate would still spin up a macOS runner for the checkout,
+    # so the gate has to sit above the matrix fan-out; macOS stays
+    # best-effort (PR + monthly cron only) until verified on a real runner.
+    if: "!matrix.best-effort || github.event_name == 'pull_request' || github.event_name == 'schedule'"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+            best-effort: true
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      with:
+        persist-credentials: false
+
+    # Toolchain cache (td-054): the key embeds the pinned versions below -
+    # bump the key together with the pins; the link is manual, nothing
+    # derives it mechanically (a skipped bump surfaces as a SHA-256
+    # mismatch in the build step, not as silent staleness).
+    - name: Cache Linux toolchain
+      if: runner.os == 'Linux'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ runner.temp }}/toolchain
+        key: lin-toolchain-fpc3.2.2-laz4.4
+        restore-keys: lin-toolchain-
+
+    - name: Build on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # Toolchain pinned to Lazarus 4.4 + FPC 3.2.2 (the pair the core units
+        # are verified with; td-007: the gating job must not roll the dice on
+        # an unpinned distro toolchain), SHA-256 from the official
+        # https://www.lazarus-ide.org/index.php?page=checksums
+        readonly FPC_URL='https://downloads.sourceforge.net/lazarus/Lazarus%20Linux%20amd64%20DEB/Lazarus%204.4/fpc-laz_3.2.2-210709_amd64.deb'
+        readonly FPC_SHA256='92000f2b831184e153aab0c910f8ae9240450e5c6d76dc189cf53116ee501d83'
+        readonly FPCSRC_URL='https://downloads.sourceforge.net/lazarus/Lazarus%20Linux%20amd64%20DEB/Lazarus%204.4/fpc-src_3.2.2-210709_amd64.deb'
+        readonly FPCSRC_SHA256='8c9e145d8056754a9ca39ce3e52e982b8e4816124984c5f542f2a874e721ad53'
+        readonly LAZ_URL='https://downloads.sourceforge.net/lazarus/Lazarus%20Linux%20amd64%20DEB/Lazarus%204.4/lazarus-project_4.4.0-0_amd64.deb'
+        readonly LAZ_SHA256='b0fc74cce8f293e54332a1266ab87ccecb9753c52313392dd08c7bab6540d569'
+        readonly TOOLDIR="$RUNNER_TEMP/toolchain"
+        mkdir -p "$TOOLDIR"
+        # Cache hit (step above) skips the downloads; the SHA-256 checks below
+        # run regardless (fail-closed). Each download lands in a ".part" file
+        # and is renamed only after its checksum passes: a partial file at the
+        # final path would be conserved by the cache save on a failed run and
+        # poison the key permanently.
+        if [ ! -f "$TOOLDIR/fpc-laz_3.2.2-210709_amd64.deb" ]; then
+          curl -fL --retry 3 --retry-max-time 900 --connect-timeout 20 --max-time 600 --proto '=https' -o "$TOOLDIR/fpc-laz_3.2.2-210709_amd64.deb.part" "$FPC_URL"
+          echo "$FPC_SHA256  $TOOLDIR/fpc-laz_3.2.2-210709_amd64.deb.part" | sha256sum -c -
+          mv "$TOOLDIR/fpc-laz_3.2.2-210709_amd64.deb.part" "$TOOLDIR/fpc-laz_3.2.2-210709_amd64.deb"
+        fi
+        if [ ! -f "$TOOLDIR/fpc-src_3.2.2-210709_amd64.deb" ]; then
+          curl -fL --retry 3 --retry-max-time 900 --connect-timeout 20 --max-time 600 --proto '=https' -o "$TOOLDIR/fpc-src_3.2.2-210709_amd64.deb.part" "$FPCSRC_URL"
+          echo "$FPCSRC_SHA256  $TOOLDIR/fpc-src_3.2.2-210709_amd64.deb.part" | sha256sum -c -
+          mv "$TOOLDIR/fpc-src_3.2.2-210709_amd64.deb.part" "$TOOLDIR/fpc-src_3.2.2-210709_amd64.deb"
+        fi
+        if [ ! -f "$TOOLDIR/lazarus-project_4.4.0-0_amd64.deb" ]; then
+          curl -fL --retry 3 --retry-max-time 900 --connect-timeout 20 --max-time 600 --proto '=https' -o "$TOOLDIR/lazarus-project_4.4.0-0_amd64.deb.part" "$LAZ_URL"
+          echo "$LAZ_SHA256  $TOOLDIR/lazarus-project_4.4.0-0_amd64.deb.part" | sha256sum -c -
+          mv "$TOOLDIR/lazarus-project_4.4.0-0_amd64.deb.part" "$TOOLDIR/lazarus-project_4.4.0-0_amd64.deb"
+        fi
+        echo "$FPC_SHA256  $TOOLDIR/fpc-laz_3.2.2-210709_amd64.deb" | sha256sum -c -
+        echo "$FPCSRC_SHA256  $TOOLDIR/fpc-src_3.2.2-210709_amd64.deb" | sha256sum -c -
+        echo "$LAZ_SHA256  $TOOLDIR/lazarus-project_4.4.0-0_amd64.deb" | sha256sum -c -
+        # gtk2 headers are the distro library the LCL widgetset links against,
+        # not part of the toolchain (compiler, FPC sources and IDE all come
+        # from the pinned debs above) - left unpinned deliberately
+        sudo apt-get update >/dev/null
+        sudo apt-get install -y libgtk2.0-dev >/dev/null
+        sudo dpkg -i "$TOOLDIR/fpc-src_3.2.2-210709_amd64.deb" "$TOOLDIR/fpc-laz_3.2.2-210709_amd64.deb" "$TOOLDIR/lazarus-project_4.4.0-0_amd64.deb"
+        test -x /usr/bin/lazbuild -a -d /usr/share/lazarus/*/components/lazutils
+        declare -rx INSTANTFPCOPTIONS='-Fu/usr/share/lazarus/*/components/lazutils'
+        instantfpc '.github/workflows/make.pas' build
+
+    # Offline suites of the console runner through the make.pas test action
+    # (td-113): an explicit suite list - --all would drag in the
+    # live-token suites, whose red is environmental (no testmax.ini), not a
+    # regression. The macOS leg stays build-only: best-effort (td-002) and the
+    # darwin OpenSSL load errors of the receiver TLS tests are environmental.
+    - name: Test on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      # Step-level bound (the suites run through the blocking RunCommand of
+      # make.pas with no per-process timeout): a hung suite (the receiver has
+      # a wedge history, td-104) would otherwise hold the runner for the rest
+      # of the job-level 120 minutes. The offline run of 11 suites takes
+      # minutes, so 30 is an order of headroom;
+      # GitHub kills the step process tree on expiry and the last
+      # "Suite:<TAB><name>" log line identifies the hung suite.
+      timeout-minutes: 30
+      run: |
+        # INSTANTFPCOPTIONS does not cross the step boundary (every run: is a
+        # fresh shell) - re-declare what the build step declares above
+        declare -rx INSTANTFPCOPTIONS='-Fu/usr/share/lazarus/*/components/lazutils'
+        instantfpc '.github/workflows/make.pas' test
+
+    # Same scheme as the Linux leg (td-054): the key embeds the pinned
+    # versions below - bump the key together with the pins; the link is
+    # manual. The event gate lives on the job above.
+    - name: Cache macOS toolchain
+      if: runner.os == 'macOS'
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: ${{ runner.temp }}/toolchain
+        key: mac-toolchain-fpc3.2.2-laz4.4
+        restore-keys: mac-toolchain-
+
+    - name: Build on macOS
+      # best-effort leg (td-002): the event gate lives at job level above
+      if: runner.os == 'macOS'
+      continue-on-error: true  # best-effort until verified on a real runner; local macOS build is the gate
+      shell: bash
+      run: |
+        # Toolchain pinned to Lazarus 4.4 + FPC 3.2.2 (the FPC the core units are verified with),
+        # SHA-256 from the official https://www.lazarus-ide.org/index.php?page=checksums
+        readonly FPC_URL='https://downloads.sourceforge.net/lazarus/Lazarus%20macOS%20aarch64/Lazarus%204.4/fpc-3.2.2.intelarm64-macosx.dmg'
+        readonly FPC_SHA256='05d4510c8c887e3c68de20272abf62171aa5b2ef1eba6bce25e4c0bc41ba8b7d'
+        readonly LAZ_URL='https://downloads.sourceforge.net/lazarus/Lazarus%20macOS%20aarch64/Lazarus%204.4/lazarus-darwin-aarch64-4.4.zip'
+        readonly LAZ_SHA256='554f6c550da11562a061143fdb545cebe82323c22e318bdcbe79727945ba9ed0'
+        readonly TOOLDIR="$RUNNER_TEMP/toolchain"
+        mkdir -p "$TOOLDIR/fpc"
+        trap 'hdiutil detach "$TOOLDIR/fpc" >/dev/null 2>&1 || true' EXIT
+        # Cache hit (step above) skips the downloads; the SHA-256 checks below
+        # run regardless (fail-closed). Each download lands in a ".part" file
+        # and is renamed only after its checksum passes: a partial file at the
+        # final path would be conserved by the cache save on a failed run
+        # (continue-on-error keeps the job green) and poison the key
+        # permanently.
+        if [ ! -f "$TOOLDIR/fpc-3.2.2.intelarm64-macosx.dmg" ]; then
+          curl -fL --retry 3 --retry-max-time 900 --connect-timeout 20 --max-time 600 --proto '=https' -o "$TOOLDIR/fpc-3.2.2.intelarm64-macosx.dmg.part" "$FPC_URL"
+          echo "$FPC_SHA256  $TOOLDIR/fpc-3.2.2.intelarm64-macosx.dmg.part" | shasum -a 256 -c -
+          mv "$TOOLDIR/fpc-3.2.2.intelarm64-macosx.dmg.part" "$TOOLDIR/fpc-3.2.2.intelarm64-macosx.dmg"
+        fi
+        if [ ! -f "$TOOLDIR/lazarus-darwin-aarch64-4.4.zip" ]; then
+          curl -fL --retry 3 --retry-max-time 900 --connect-timeout 20 --max-time 600 --proto '=https' -o "$TOOLDIR/lazarus-darwin-aarch64-4.4.zip.part" "$LAZ_URL"
+          echo "$LAZ_SHA256  $TOOLDIR/lazarus-darwin-aarch64-4.4.zip.part" | shasum -a 256 -c -
+          mv "$TOOLDIR/lazarus-darwin-aarch64-4.4.zip.part" "$TOOLDIR/lazarus-darwin-aarch64-4.4.zip"
+        fi
+        echo "$FPC_SHA256  $TOOLDIR/fpc-3.2.2.intelarm64-macosx.dmg" | shasum -a 256 -c -
+        echo "$LAZ_SHA256  $TOOLDIR/lazarus-darwin-aarch64-4.4.zip" | shasum -a 256 -c -
+        hdiutil attach -readonly -nobrowse -mountpoint "$TOOLDIR/fpc" "$TOOLDIR/fpc-3.2.2.intelarm64-macosx.dmg"
+        sudo installer -pkg "$TOOLDIR/fpc/fpc-3.2.2-intelarm64-macosx.mpkg" -target /
+        hdiutil detach "$TOOLDIR/fpc" || true  # transient 'Resource busy' (mds indexing) must not fail the step
+        # Extract into a scratch dir outside the cached toolchain (td-002):
+        # unzip runs on every run of this leg, so extracting into the
+        # cached dir would hit the unpacked tree from a previous run and
+        # prompt on the closed stdin (EOF kills the step under bash -e);
+        # -o stays as a guard.
+        # $RUNNER_TEMP is ephemeral per job, so stale extractions cannot
+        # collide - and ~1 GB of unpacked tree stays out of the cache.
+        unzip -q -o "$TOOLDIR/lazarus-darwin-aarch64-4.4.zip" -d "$RUNNER_TEMP/laz"
+        LAZBIN="$RUNNER_TEMP/laz/lazarus/lazbuild"
+        LAZDIR="$RUNNER_TEMP/laz/lazarus/components/lazutils"
+        test -x "$LAZBIN" -a -d "$LAZDIR"
+        declare -rx PATH="$RUNNER_TEMP/laz/lazarus:$PATH"
+        declare -rx INSTANTFPCOPTIONS="-Fu$LAZDIR"
+        instantfpc '.github/workflows/make.pas' build

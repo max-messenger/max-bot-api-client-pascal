@@ -1,0 +1,62 @@
+# systemd unit template for the fp-max daemon example (examples/daemon).
+#
+# Install (the example binary, its max_daemon.ini and its max_daemon.log are
+# expected in /opt/fpmax, adjust the paths and the user below otherwise):
+#   sudo mkdir -p /opt/fpmax
+#   sudo cp max_daemon /opt/fpmax/
+#   sudo install -m 600 /dev/null /opt/fpmax/max_daemon.ini
+#     (the ini exists at 600 before the token goes in; sudoedit keeps the
+#     mode)
+#   sudoedit /opt/fpmax/max_daemon.ini   # the bot token into [Max] Token,
+#     plus [Daemon] LogFile=/opt/fpmax/max_daemon.log (an empty LogFile
+#     sends the log to the system temp directory)
+#   sudo chmod 700 /opt/fpmax
+#   sudo useradd -r -s /usr/sbin/nologin fpmax
+#   sudo chown -R fpmax:fpmax /opt/fpmax
+#   sudo cp fpmax-daemon.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now fpmax-daemon
+#
+# Logs: journalctl -u fpmax-daemon -f (stderr, incl. the startup
+# configuration errors), plus the daemon's own TEventLog file
+# /opt/fpmax/max_daemon.log (the [Max] updates and the receiver state).
+
+[Unit]
+Description=fp-max daemon example (MAX messenger long-polling bot)
+# The bot needs the network; a want, not a requirement - a boot without it
+# is not failed, the receiver retries transport failures on its own
+Wants=network-online.target
+After=network-online.target
+# Rate limit the restarts: a permanently broken configuration (an empty
+# token) fails on every start, without the limit it would spin forever
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=fpmax
+Group=fpmax
+WorkingDirectory=/opt/fpmax
+ExecStart=/opt/fpmax/max_daemon
+# Restart on a non-zero exit (the example exits 1 when its receiver died on
+# its own) and on unclean signals; a clean SIGTERM stop (exit 0) stays
+# stopped - systemctl stop is not undone by the manager
+Restart=on-failure
+RestartSec=5s
+# Stop = SIGTERM, then SIGKILL after this grace period. The daemon's stop
+# latency is one in-flight long-poll request, hard-bounded by the broker
+# HTTP timeout (max(TMaxSender.Timeout, polling window + 3 s), 30 s with
+# the defaults), so 45 s leaves a wide margin
+TimeoutStopSec=45
+# Minimal hardening; drop the lines that break the deployment
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/fpmax
+ProtectHome=true
+PrivateTmp=true
+# The ini holds the bot token, the log holds chat ids; with the default
+# umask the daemon would create the log 0644. 0077 keeps both private.
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

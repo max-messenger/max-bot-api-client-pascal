@@ -1,0 +1,3 @@
+# All Lazarus package manifests are stored and checked out with LF (td-056):
+# EOL divergence between all .lpk manifests produced whole-file diffs on every edit.
+*.lpk text eol=lf

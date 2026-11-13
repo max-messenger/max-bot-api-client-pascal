@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Package Version="5">
+    <PathDelim Value="\"/>
+    <Name Value="fpmaxbot_ex"/>
+    <Author Value="Renat Suleymanov"/>
+    <CompilerOptions>
+      <Version Value="11"/>
+      <PathDelim Value="\"/>
+      <SearchPaths>
+        <OtherUnitFiles Value="bot_ex"/>
+        <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+      </SearchPaths>
+    </CompilerOptions>
+    <Description Value="TMaxBot class is inheritor of TMaxSender with extended features"/>
+    <License Value="MIT License"/>
+    <Version Release="2"/>
+    <Files>
+      <Item>
+        <Filename Value="bot_ex\maxbot.pas"/>
+        <UnitName Value="maxbot"/>
+      </Item>
+      <Item>
+        <Filename Value="bot_ex\maxplugin.pas"/>
+        <UnitName Value="maxplugin"/>
+      </Item>
+      <Item>
+        <Filename Value="maxbot_dt.pas"/>
+        <UnitName Value="maxbot_dt"/>
+      </Item>
+      <Item>
+        <Filename Value="receiverthread.pas"/>
+        <UnitName Value="receiverthread"/>
+      </Item>
+    </Files>
+    <RequiredPkgs>
+      <Item>
+        <PackageName Value="LazUtils"/>
+      </Item>
+      <Item>
+        <PackageName Value="fpmax"/>
+        <MinVersion Release="6" Build="1" Valid="True"/>
+      </Item>
+      <Item>
+        <PackageName Value="FCL"/>
+      </Item>
+    </RequiredPkgs>
+    <UsageOptions>
+      <UnitPath Value="$(PkgOutDir)"/>
+    </UsageOptions>
+    <PublishOptions>
+      <Version Value="2"/>
+      <UseFileFilters Value="True"/>
+    </PublishOptions>
+  </Package>
+</CONFIG>
